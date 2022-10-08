@@ -4,8 +4,8 @@ This repo contains small language models to complex language models. This is my 
 Following andrej karpathy lectures and many other resources 
 
 ---
-## Models  
+## Models so far
 #### This list will increase over time   
-####### Trigram model:  
+###### Trigram model:  
     Takes in two characters and predicts a next one 
  
