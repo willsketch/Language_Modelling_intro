@@ -5,7 +5,7 @@ Following andrej karpathy lectures and many other resources
 
 ---
 ## Models  
-### This list will increase over time   
-Trigram model:
+#### This list will increase over time   
+####### Trigram model:  
     Takes in two characters and predicts a next one 
  
