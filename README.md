@@ -2,6 +2,7 @@
 ## Introduction to Language modelling  
 This repo contains small language models to complex language models. This is my journey into the world of language modelling  
 Following andrej karpathy lectures and many other resources 
+
 ---
 ## Models  
 ### This list will increase over time   
