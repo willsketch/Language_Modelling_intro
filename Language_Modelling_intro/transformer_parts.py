@@ -263,3 +263,37 @@ class Decoder(nn.Module):
         out = target.view(self.batch_size, self.seq_len, self.emb_dim)
 
         return out
+
+class Encoder_stack(nn.Module):
+    '''
+    a stack of encoder layers connected sequentially
+    takes input as embedded matrix of sequences with shape:
+        (batch_size, seq_len, emb_dim)
+    output is a matrix of shape --> (batch_size, seq_len, emb_dim)
+    '''
+    def __init__(self, n_encoders, seq_len, emb_dim, n_heads, batch_size):
+        super().__init__()
+        self.enc = Encoder(seq_len=seq_len, emb_dim=emb_dim, n_heads=n_heads, n_samples= batch_size)
+        self.encoders_stack = [self.enc]*n_encoders
+
+    def forward(self, x):
+        for enc in self.encoders_stack:
+            x = enc(x)
+        return x
+
+class Decoder_stack(nn.Module):
+    '''
+    a stack of decoder layers connected sequentially
+    takes input as embedded matrix of sequences with shape
+        (batch_size, seq_len, emb_dim), and enc_stak output
+    output is a matrix of shape --> (batch_size, seq_len, emb_dim)
+    '''
+    def __init__(self, n_decoders, seq_len, emb_dim, n_heads, batch_size):
+        super().__init__()
+        self.dec = Decoder(seq_len=seq_len, emb_dim=emb_dim, n_heads = n_heads, batch_size=batch_size)
+        self.decoders_stack = [self.dec]*n_decoders
+
+    def forward(self, x, enc_output):
+        for dec in self.decoders_stack:
+            x = dec(x, enc_output)
+        return x
