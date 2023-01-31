@@ -114,12 +114,13 @@ class Encoder(nn.Module):
     (n_samples(batch_size), seq_len, emb_dim)
     output is matrix of shape --> (n_samples(batch_size), seq_len, emb_dim)
     """
-    def __init__(self, seq_len, emb_dim, n_heads, n_samples):
+    def __init__(self, seq_len, emb_dim, n_heads, n_samples, mask=None):
         super().__init__()
         self.seq_len= seq_len
         self.emb_dim = emb_dim
         self.n_heads = n_heads
         self.batch_size = n_samples
+        self.mask = mask
         self.q_k_v = Q_K_V() #creates query, key , value matrices
         self.attention = MultiHeadAttention(emb_dim=self.emb_dim, n_heads=self.n_heads) # calculates attention score
         self.batchNorm = nn.BatchNorm1d(num_features=self.emb_dim)# batch nomr layer
@@ -150,3 +151,149 @@ class Encoder(nn.Module):
         out = x.view(self.batch_size, self.seq_len, self.emb_dim)
 
         return out
+
+class Q_K_V_dec_enc(nn.Module):
+    """
+    this is similar to the Q_K_V class for the attention layer
+    input is 2 matrices:
+        1) encoder stack output with shape --> (n_samples(batch_size), seq_len, emb_dim)
+            this is assigned to the key and value matrices
+        2) target output with  shape --> (n_samples(batch_size), seq_len, emb_dim)
+            this is assigned to the query matrix
+    output is tuple of query, key, value with shapes -->(n_samples(batch_size),seq_len, emb_dim)
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, e_out, t_out):
+        batch_size , seq_len, emb_dim = t_out.size()
+        # initialize linear layer
+        linear_layer = nn.Linear(in_features=seq_len*emb_dim, out_features=seq_len*emb_dim)
+        query = linear_layer(t_out.view(batch_size, seq_len*emb_dim)).view(batch_size, seq_len, emb_dim)
+        key = linear_layer(e_out.view(batch_size, seq_len*emb_dim)).view(batch_size, seq_len, emb_dim)
+        value = linear_layer(e_out.view(batch_size, seq_len*emb_dim)).view(batch_size, seq_len, emb_dim)
+        return query, key, value
+
+class Enc_Dec_Attention(nn.Module):
+    """
+    input is:
+        q= q # query matrix with shape --> (n_samples(batch_size),seq_len, emb_dim)
+        k= k # key matrix with shape --> (n_samples(batch_size),seq_len, emb_dim)
+        v = v # value matrix with shape --> (n_samples(batch_size),seq_len, emb_dim)
+    """
+    def __init__(self, emb_dim, n_heads, mask=None):
+        super().__init__()
+        self.heads = n_heads
+        self.emb_dim = emb_dim
+        self.query_size = self.emb_dim//n_heads
+        self.mask = mask
+
+    def forward(self, q, k, v):
+        n_samples, seq_len, emb_dim = q.size()
+        assert self.emb_dim == emb_dim # check shape input matrix
+
+        q= q.view(n_samples, self.heads, seq_len, self.query_size)
+        # print(q.shape, 'q_shape after reshaping')
+        v = v.view(n_samples, self.heads, seq_len, self.query_size)
+        # print(v.shape, 'v_shape after reshaping')
+        k= k.view(n_samples, self.heads, seq_len, self.query_size)
+        # print(k.shape, 'k_shape after reshaping')
+        wei = q @ k.transpose(-2, -1) # shape --> (n_samples, heads, seq_len, seq_len)
+        # print(wei.shape, 'wei_shape')
+        if self.mask is not None:
+            wei = wei + self.mask
+        wei = wei * (self.query_size**-0.5)
+        wei = F.softmax(wei, dim= -1)# shape--> (n_samples, heads, seq_len, seq_len)
+        a_s = wei @ v #attention_score matrix with shape-->(n_samples, heads, seq_len, query_size)
+        # print(a_s.shape, 'a_s_shape before reshaping')
+        out = a_s.view(n_samples, seq_len, self.emb_dim)
+        # print(out.shape, 'a_s_shape after reshaping')
+        return out
+
+class Decoder(nn.Module):
+    """
+    unification of decoder which incoporates attention, enc_dec attention, batch norm,
+    feed forwrd and batchnorm layers implemented with residual skip connections
+    recieves input from seq and position embedding or other decoders and from encoding stack a matrix with shape -->
+    (n_samples(batch_size), seq_len, emb_dim)
+    output is matrix of shape --> (n_samples(batch_size), seq_len, emb_dim)
+    """
+    def __init__(self, seq_len, emb_dim, batch_size, mask=None, n_heads = 4):
+        super().__init__()
+        self.seq_len = seq_len
+        self.emb_dim = emb_dim
+        self.batch_size = batch_size
+        self.mask = mask
+        self.n_heads = n_heads
+        if self.mask is None:
+            tril = torch.tril(torch.ones((self.seq_len,self.seq_len)))
+            mask = torch.zeros((self.seq_len, self.seq_len))
+            mask = mask.masked_fill(tril ==0, float('-inf'))
+            self.mask = mask
+        self.q_k_v = Q_K_V()
+        self.q_k_v_dec_enc = Q_K_V_dec_enc()
+        self.attention = MultiHeadAttention(emb_dim=self.emb_dim, n_heads=self.n_heads, mask=self.mask)
+        self.batchNorm = nn.BatchNorm1d(num_features=self.emb_dim)
+        self.enc_dec_attention = Enc_Dec_Attention(emb_dim=self.emb_dim, n_heads=self.n_heads, mask=self.mask)
+        self.feed_forward = nn.Linear(in_features=self.emb_dim*self.seq_len, out_features=self.emb_dim*self.seq_len)
+
+    def forward(self, target, enc_out):
+        target_copy = torch.clone(target) # matrix with shape -->(n_samples, seq_len, emb_dim)
+        q, k, v = self.q_k_v(target) # 3 matrices with shape --> (n_samples, seq_len, emb_dim)
+        target_attention = self.attention(q,k,v) # matrix with shape -->(n_samples, seq_len, emb_dim)
+        target = target_copy + target_attention # skip residual connection
+        # batch norm layer , matrix has to be reshaped to (n_samples, emb_dim, seq_len)
+        #in order to use pytorch batchNorm api
+        target = self.batchNorm(target.view(self.batch_size, self.emb_dim, self.seq_len))
+        # reshaping x back to shape -->(n_samples, seq_len, emb_dim)
+        target = target.view(self.batch_size, self.seq_len, self.emb_dim)
+        target_copy = torch.clone(target)
+        q,k,v = self.q_k_v_dec_enc(target, enc_out)
+        target = self.enc_dec_attention(q,k,v)
+        target = target + target_copy # skip residual connection
+        target = self.batchNorm(target.view(self.batch_size, self.emb_dim, self.seq_len))
+        # reshaping x back to shape -->(n_samples, seq_len, emb_dim)
+        target = target.view(self.batch_size, self.seq_len, self.emb_dim)
+        target_copy = torch.clone(target)
+        # output of line below has shape -->(n_samples, seq_len, emb_dim)
+        target = self.feed_forward(x.view(self.batch_size, self.seq_len*self.emb_dim)).view(self.batch_size, self.seq_len, self.emb_dim)
+        target = target + target_copy # skip residual connection
+        target = self.batchNorm(target.view(self.batch_size, self.emb_dim, self.seq_len)) # another batch layer
+        target = torch.tanh(target)
+        out = target.view(self.batch_size, self.seq_len, self.emb_dim)
+
+        return out
+
+class Encoder_stack(nn.Module):
+    '''
+    a stack of encoder layers connected sequentially
+    takes input as embedded matrix of sequences with shape:
+        (batch_size, seq_len, emb_dim)
+    output is a matrix of shape --> (batch_size, seq_len, emb_dim)
+    '''
+    def __init__(self, n_encoders, seq_len, emb_dim, n_heads, batch_size):
+        super().__init__()
+        self.enc = Encoder(seq_len=seq_len, emb_dim=emb_dim, n_heads=n_heads, n_samples= batch_size)
+        self.encoders_stack = [self.enc]*n_encoders
+
+    def forward(self, x):
+        for enc in self.encoders_stack:
+            x = enc(x)
+        return x
+
+class Decoder_stack(nn.Module):
+    '''
+    a stack of decoder layers connected sequentially
+    takes input as embedded matrix of sequences with shape
+        (batch_size, seq_len, emb_dim), and enc_stak output
+    output is a matrix of shape --> (batch_size, seq_len, emb_dim)
+    '''
+    def __init__(self, n_decoders, seq_len, emb_dim, n_heads, batch_size):
+        super().__init__()
+        self.dec = Decoder(seq_len=seq_len, emb_dim=emb_dim, n_heads = n_heads, batch_size=batch_size)
+        self.decoders_stack = [self.dec]*n_decoders
+
+    def forward(self, x, enc_output):
+        for dec in self.decoders_stack:
+            x = dec(x, enc_output)
+        return x
