@@ -37,9 +37,9 @@ class Transformer(nn.Module):
         return dec_out
 
 if __name__ == '__main__':
-    vocab_size = 1000
-    emb_dim = 40
-    seq_len = 256
+    vocab_size = 100
+    emb_dim = 20
+    seq_len = 8
     batch_size = 32
     a = torch.randint(0, vocab_size, (batch_size, seq_len))
     b = torch.randint(0, vocab_size, (batch_size, seq_len))

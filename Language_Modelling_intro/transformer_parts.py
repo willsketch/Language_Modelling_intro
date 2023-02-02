@@ -299,10 +299,10 @@ class Decoder_stack(nn.Module):
         return x
 
 
-class Generate_Output(nn.Module):
-    """
-    generates output from input of decoding layers
-    """
-    def __init__(self, hidden_nuerons= 32, seq_len, emb_dim):
-        super().__init__()
-        self.linear1 = nn.Linear(in_features=seq_len*emb_dim)
+# class Generate_Output(nn.Module):
+#     """
+#     generates output from input of decoding layers
+#     """
+#     def __init__(self, hidden_nuerons= 32, seq_len, emb_dim):
+#         super().__init__()
+#         self.linear1 = nn.Linear(in_features=seq_len*emb_dim)
