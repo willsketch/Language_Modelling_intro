@@ -122,7 +122,7 @@ class Encoder(nn.Module):
         self.batch_size = n_samples
         self.mask = mask
         self.q_k_v = Q_K_V() #creates query, key , value matrices
-        self.attention = MultiHeadAttention(emb_dim=self.emb_dim, n_heads=self.n_heads) # calculates attention score
+        self.attention = MultiHeadAttention(emb_dim=self.emb_dim, n_heads=self.n_heads, mask=mask) # calculates attention score
         self.batchNorm = nn.BatchNorm1d(num_features=self.emb_dim)# batch nomr layer
         self.feed_forward = nn.Linear(in_features=self.emb_dim*self.seq_len, out_features=self.emb_dim*self.seq_len)
 
@@ -256,7 +256,7 @@ class Decoder(nn.Module):
         target = target.view(self.batch_size, self.seq_len, self.emb_dim)
         target_copy = torch.clone(target)
         # output of line below has shape -->(n_samples, seq_len, emb_dim)
-        target = self.feed_forward(x.view(self.batch_size, self.seq_len*self.emb_dim)).view(self.batch_size, self.seq_len, self.emb_dim)
+        target = self.feed_forward(target.view(self.batch_size, self.seq_len*self.emb_dim)).view(self.batch_size, self.seq_len, self.emb_dim)
         target = target + target_copy # skip residual connection
         target = self.batchNorm(target.view(self.batch_size, self.emb_dim, self.seq_len)) # another batch layer
         target = torch.tanh(target)
@@ -271,9 +271,9 @@ class Encoder_stack(nn.Module):
         (batch_size, seq_len, emb_dim)
     output is a matrix of shape --> (batch_size, seq_len, emb_dim)
     '''
-    def __init__(self, n_encoders, seq_len, emb_dim, n_heads, batch_size):
+    def __init__(self, n_encoders, seq_len, emb_dim, n_heads, batch_size, mask=None):
         super().__init__()
-        self.enc = Encoder(seq_len=seq_len, emb_dim=emb_dim, n_heads=n_heads, n_samples= batch_size)
+        self.enc = Encoder(seq_len=seq_len, emb_dim=emb_dim, n_heads=n_heads, n_samples= batch_size, mask =mask)
         self.encoders_stack = [self.enc]*n_encoders
 
     def forward(self, x):
@@ -288,12 +288,21 @@ class Decoder_stack(nn.Module):
         (batch_size, seq_len, emb_dim), and enc_stak output
     output is a matrix of shape --> (batch_size, seq_len, emb_dim)
     '''
-    def __init__(self, n_decoders, seq_len, emb_dim, n_heads, batch_size):
+    def __init__(self, n_decoders, seq_len, emb_dim, n_heads, batch_size, mask=None):
         super().__init__()
-        self.dec = Decoder(seq_len=seq_len, emb_dim=emb_dim, n_heads = n_heads, batch_size=batch_size)
+        self.dec = Decoder(seq_len=seq_len, emb_dim=emb_dim, n_heads = n_heads, batch_size=batch_size, mask= mask)
         self.decoders_stack = [self.dec]*n_decoders
 
     def forward(self, x, enc_output):
         for dec in self.decoders_stack:
             x = dec(x, enc_output)
         return x
+
+
+# class Generate_Output(nn.Module):
+#     """
+#     generates output from input of decoding layers
+#     """
+#     def __init__(self, hidden_nuerons= 32, seq_len, emb_dim):
+#         super().__init__()
+#         self.linear1 = nn.Linear(in_features=seq_len*emb_dim)
